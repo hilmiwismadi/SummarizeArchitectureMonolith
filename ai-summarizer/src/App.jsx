@@ -52,46 +52,125 @@ const MainApp = () => {
     }
   };
 
-  const handleSummarize = async () => {
-    if (inputText.trim() === "") return;
+ const handleSummarize = async () => {
+  if (inputText.trim() === "") return;
 
-    setSummary("");
-    setLoading(true);
+  console.log("🚀 Starting summarize process...");
+  console.log("📝 Input text:", inputText.substring(0, 100) + "...");
+  console.log("🤖 Model:", model);
+  console.log("🔑 API Key available:", !!import.meta.env.VITE_OPENROUTER_API_KEY);
 
-    try {
-      // For testing without AI, let's create a simple summary
-      const testSummary = `Test summary for: "${inputText.substring(0, 50)}${inputText.length > 50 ? '...' : ''}"`;
-      
-      // Save to backend
-      const response = await fetch(`${API_BASE_URL}/summarize`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+  setSummary("");
+  setLoading(true);
+
+  try {
+    // Panggil AI OpenRouter untuk generate summary
+    console.log("📡 Calling OpenRouter API...");
+    
+    const requestBody = {
+      model: model,
+      messages: [
+        {
+          role: "user",
+          content: `Summarize the following text without any addition answer. Answer in the language the user speaks:\n${inputText}`,
         },
-        credentials: 'include',
-        body: JSON.stringify({
-          inputText,
-          summaryText: testSummary,
-          modelUsed: model,
-        }),
-      });
+      ],
+    };
+    
+    console.log("📦 Request body:", requestBody);
 
-      if (response.ok) {
-        const newSummary = await response.json();
-        setSummary(newSummary.summaryText);
-        
-        // Refresh history
-        fetchHistory();
-      } else {
-        throw new Error('Failed to save summary');
+    const aiResponse = await fetch(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${import.meta.env.VITE_OPENROUTER_API_KEY}`,
+          "HTTP-Referer": window.location.origin,
+          "X-Title": "Text Summarizer App",
+        },
+        body: JSON.stringify(requestBody),
       }
-    } catch (error) {
-      console.error("Failed to create summary:", error);
-      alert("Failed to create summary. Please try again.");
-    } finally {
-      setLoading(false);
+    );
+
+    console.log("✅ AI Response status:", aiResponse.status);
+    console.log("🔍 AI Response headers:", Object.fromEntries(aiResponse.headers.entries()));
+
+    if (!aiResponse.ok) {
+      const errorText = await aiResponse.text();
+      console.error("❌ AI API Error:", aiResponse.status, aiResponse.statusText);
+      console.error("❌ Error details:", errorText);
+      throw new Error(`AI API Error: ${aiResponse.status} ${aiResponse.statusText} - ${errorText}`);
     }
-  };
+
+    const aiData = await aiResponse.json();
+    console.log("📨 Full AI Response:", aiData);
+    
+    // Validasi response AI
+    if (!aiData.choices || !aiData.choices[0] || !aiData.choices[0].message) {
+      console.error("❌ Invalid AI response structure:", aiData);
+      throw new Error('Invalid AI response format');
+    }
+    
+    const aiSummary = aiData.choices[0].message.content;
+    console.log("📝 AI Summary received:", aiSummary);
+
+    // Simpan ke backend
+    console.log("💾 Saving to backend...");
+    const backendResponse = await fetch(`${API_BASE_URL}/summarize`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        inputText,
+        summaryText: aiSummary,
+        modelUsed: model,
+      }),
+    });
+
+    console.log("✅ Backend Response status:", backendResponse.status);
+
+    if (!backendResponse.ok) {
+      const backendErrorText = await backendResponse.text();
+      console.error("❌ Backend Error:", backendResponse.status, backendResponse.statusText);
+      console.error("❌ Backend Error details:", backendErrorText);
+      throw new Error(`Backend Error: ${backendResponse.status} ${backendResponse.statusText}`);
+    }
+
+    const savedSummary = await backendResponse.json();
+    console.log("💾 Backend Response:", savedSummary);
+    
+    // Set summary dari response backend atau AI
+    const finalSummary = savedSummary.summaryText || aiSummary;
+    console.log("🎯 Final summary to display:", finalSummary);
+    setSummary(finalSummary);
+    
+    // Refresh history
+    console.log("🔄 Refreshing history...");
+    fetchHistory();
+    
+    console.log("✅ Summarize process completed successfully!");
+    
+  } catch (error) {
+    console.error("❌ Summarize process failed:", error);
+    console.error("❌ Error stack:", error.stack);
+    
+    // Error handling yang lebih spesifik
+    if (error.message.includes('AI API Error')) {
+      alert("AI service is currently unavailable. Please try again later.");
+    } else if (error.message.includes('Backend Error')) {
+      alert("Failed to save summary to server. Please try again.");
+    } else if (error.message.includes('Invalid AI response')) {
+      alert("Received invalid response from AI. Please try again.");
+    } else {
+      alert("Failed to create summary. Please check your connection and try again.");
+    }
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleReset = () => {
     setInputText("");
