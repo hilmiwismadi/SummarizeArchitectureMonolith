@@ -25,3 +25,4 @@ dist-ssr
 
 # sensitif data
 .env*
+.vercel
